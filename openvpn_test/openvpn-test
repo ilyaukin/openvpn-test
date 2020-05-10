@@ -1,0 +1,86 @@
+#!/usr/bin/python
+import atexit
+import importlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+from argparse import ArgumentParser
+
+
+def _connect(config, other_args, callback):
+    print('*** connecting ' + config + '... ***')
+    with subprocess.Popen(args=['openvpn', '--config', config] + other_args,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE) as process:
+        for bline in process.stdout:
+            sys.stdout.buffer.write(bline)
+            line = str(bline)
+            if 'Initialization Sequence Completed' in line:
+                print('*** connect ' + config + ' success ***')
+                print('*** test ' + config + '... ***')
+                result = callback()
+                print('*** test ' + config + ' finished ***')
+                process.terminate()
+                return result
+        print('*** connect ' + config + ' fail ***')
+        return None
+
+
+def _walk(config_dir, config_mask):
+    for dirpath, dirnames, filenames in os.walk(config_dir):
+        for filename in filenames:
+            if filename.endswith('.ovpn') and \
+                (config_mask is None or re.match(config_mask, filename)):
+                yield os.path.join(dirpath, filename)
+
+
+def print_result():
+    result.sort(key=lambda pair: pair[1], reverse=True)
+    print("""
+    
+    Speed by config:
+    
+    {0}
+    
+    """.format("\n    ".join(
+        "{0} : \t{1}".format(pair[0], pair[1]) for pair in result)))
+
+
+if __name__ == '__main__':
+    argparser = ArgumentParser(
+        description="""
+        A script to test openvpn connections. It connects
+        consequently with the each config in the config-dir,
+        test each connection speed and choose the fastest one.
+        
+        Apart from the arguments described below, any openvpn's
+        command line args can be used.
+        """)
+    argparser.add_argument('--config-dir',
+                           help='Directory containing openvpn config files',
+                           default='.')
+    argparser.add_argument('--config-mask',
+                           help='Regular expression for the config files')
+    argparser.add_argument('--test',
+                           help='Module which should export test() '
+                                'function which returns connection speed. '
+                                'Default is speed_test which utilizes '
+                                'speedtest utility '
+                                '(https://beta.speedtest.net/apps/cli)',
+                           default='openvpn_test.speed_test')
+
+    args, other_args = argparser.parse_known_args()
+
+    test = getattr(importlib.import_module(args.test), 'test')
+
+    # doing through `atexit` to print partial results
+    # if program killed by Ctrl^C
+    atexit.register(print_result)
+
+    result = []
+    for config in _walk(args.config_dir, args.config_mask):
+        speed = _connect(config, other_args, test)
+        if speed:
+            result.append((config, speed))
