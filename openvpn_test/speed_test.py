@@ -5,7 +5,7 @@ import traceback
 
 
 def test():
-    with subprocess.Popen(args=['speedtest', '-f', 'json'],
+    with subprocess.Popen(args=['speedtest', '--json'],
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE) as process:
         try:
@@ -13,7 +13,7 @@ def test():
             sys.stdout.buffer.write(stdout)
             sys.stderr.buffer.write(stderr)
             result = json.loads(stdout)
-            return result['download']['bandwidth']
+            return result['download']
         except Exception:
             print(traceback.format_exc())
             process.kill()
